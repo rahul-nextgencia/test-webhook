@@ -101,21 +101,17 @@ async function sendReadReceipt(messageId) {
     }
 }
 
-// Sends a typing indicator so the user sees "typing..." in WhatsApp
-async function sendTypingIndicator(toPhone) {
+// Reacts to the user's message with an emoji
+// emoji: '👀' = bot is processing, '✅' = reply sent, '❌' = error
+async function reactToMessage(toPhone, messageId, emoji) {
     const payload = {
         messaging_product: 'whatsapp',
         to: toPhone,
-        recipient_type: 'individual',
-        type: 'text',
-        text: { body: '...' }  // fallback — replaced by actual reply
-    };
-
-    // Use the typing_on status if supported by your API version
-    const typingPayload = {
-        messaging_product: 'whatsapp',
-        to: toPhone,
-        type: 'typing'
+        type: 'reaction',
+        reaction: {
+            message_id: messageId,
+            emoji: emoji
+        }
     };
 
     try {
@@ -125,15 +121,16 @@ async function sendTypingIndicator(toPhone) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${WA_TOKEN}`
             },
-            body: JSON.stringify(typingPayload)
+            body: JSON.stringify(payload)
         });
         if (response.ok) {
-            console.log('⌨️  Typing indicator sent');
+            console.log(`${emoji} Reaction sent to message ${messageId}`);
         } else {
-            console.warn('⚠️ Typing indicator not supported by this API version (status:', response.status, ')');
+            const errText = await response.text();
+            console.warn(`⚠️ Could not send reaction (status ${response.status}):`, errText);
         }
     } catch (err) {
-        console.warn('⚠️ Could not send typing indicator:', err.message);
+        console.warn('⚠️ Could not send reaction:', err.message);
     }
 }
 
@@ -167,9 +164,9 @@ async function sendWhatsApp(toPhone, messageText) {
 async function handleMessage(userMessage, toPhone, messageId) {
     console.log(`📩 Message from ${toPhone}: "${userMessage}"`);
 
-    // Show typing indicator while we wait for the LLM
+    // Mark message as read (blue ticks) and react with 👀 to signal processing
     await sendReadReceipt(messageId);
-    await sendTypingIndicator(toPhone);
+    await reactToMessage(toPhone, messageId, '⏳');
 
     // Call the external LLM API
     const llmResponse = await fetch(LLM_API_URL, {
@@ -184,6 +181,8 @@ async function handleMessage(userMessage, toPhone, messageId) {
 
     if (!llmResponse.ok) {
         const errText = await llmResponse.text();
+        // React with ❌ to signal failure
+        await reactToMessage(toPhone, messageId, '❌');
         throw new Error(`LLM API error ${llmResponse.status}: ${errText}`);
     }
 
@@ -193,6 +192,9 @@ async function handleMessage(userMessage, toPhone, messageId) {
 
     // Send the full reply back to the user on WhatsApp
     await sendWhatsApp(toPhone, fullReply);
+
+    // React with ✅ to confirm the reply was sent successfully
+    await reactToMessage(toPhone, messageId, '✅');
 }
 
 // POST route - receives incoming WhatsApp messages
