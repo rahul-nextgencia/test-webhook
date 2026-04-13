@@ -252,7 +252,7 @@ app.post('/', (req, res) => {
                 handleMessage(userMessage, fromPhone, messageId).catch(err => {
                     console.error('❌ handleMessage error:', err.message);
                 });
-            } else if (status === 404) {
+            } else if (status === 404 || (status === 200 && data.exists === false)) {
                 // Not registered
                 console.log(`🚫 Unregistered user: ${fromPhone}`);
                 await sendWhatsApp(fromPhone, "Sorry, you don't appear to be registered for any tour. Please contact your tour organizer. 🏖️");
@@ -262,7 +262,7 @@ app.post('/', (req, res) => {
                 await sendWhatsApp(fromPhone, "Your access to this tour chat has expired. We hope you had a wonderful trip! 🏝️");
             } else {
                 // Other API error
-                console.error(`⚠️ Verification failed for ${fromPhone} (Status ${status}):`, data);
+                console.error(`⚠️ Unexpected verification state for ${fromPhone} (Status ${status}):`, data);
             }
         }).catch(err => {
             console.error('❌ Authentication flow error:', err.message);
