@@ -245,9 +245,9 @@ app.post('/', (req, res) => {
 
         // Verify user before processing
         verifyUser(fromPhone).then(async ({ status, data }) => {
-            console.log(`🔍 [Auth Result] Phone: ${fromPhone}, Status: ${status}`);
+            console.log(`🔍 [Auth Result] Phone: ${fromPhone}, Status: ${status}, Data: ${JSON.stringify(data)}`);
             
-            if (status === 200) {
+            if (status === 200 && data.exists === true) {
                 // Authorized — proceed to handle message
                 handleMessage(userMessage, fromPhone, messageId).catch(err => {
                     console.error('❌ handleMessage error:', err.message);
