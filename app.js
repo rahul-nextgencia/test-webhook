@@ -8,6 +8,7 @@ const verifyToken = process.env.VERIFY_TOKEN;
 const WA_TOKEN = process.env.WA_TOKEN || 'YOUR_WHATSAPP_TOKEN';
 const LLM_API_URL = process.env.LLM_API_URL || 'https://tours-ai-api-anffe0brajezcndk.centralus-01.azurewebsites.net/azure_ai_search';
 const WA_API_URL = 'https://graph.facebook.com/v25.0/1080983858426889/messages';
+const VERIFY_API_URL = 'https://tours-ai-api-anffe0brajezcndk.centralus-01.azurewebsites.net/verifyNumber';
 
 // GET route - handles both browser visits and Meta verification
 app.get('/', (req, res) => {
@@ -160,6 +161,26 @@ async function sendWhatsApp(toPhone, messageText) {
     console.log(`✅ WhatsApp message sent to ${toPhone}`);
 }
 
+/**
+ * Verifies a phone number against the tour database.
+ * Returns an object with the verification status and user data.
+ */
+async function verifyUser(phone) {
+    try {
+        const response = await fetch(VERIFY_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone })
+        });
+
+        const data = await response.json();
+        return { status: response.status, data };
+    } catch (err) {
+        console.error('⚠️ Verification API error:', err.message);
+        return { status: 500, error: err.message };
+    }
+}
+
 // Calls the external LLM API, aggregates the stream, and replies via WhatsApp
 async function handleMessage(userMessage, toPhone, messageId) {
     console.log(`📩 Message from ${toPhone}: "${userMessage}"`);
@@ -220,9 +241,27 @@ app.post('/', (req, res) => {
         const fromPhone = message.from;
         const messageId = message.id;
 
-        // Fire and forget — errors are caught inside
-        handleMessage(userMessage, fromPhone, messageId).catch(err => {
-            console.error('❌ handleMessage error:', err.message);
+        // Verify user before processing
+        verifyUser(fromPhone).then(async ({ status, data }) => {
+            if (status === 200) {
+                // Authorized — proceed to handle message
+                handleMessage(userMessage, fromPhone, messageId).catch(err => {
+                    console.error('❌ handleMessage error:', err.message);
+                });
+            } else if (status === 404) {
+                // Not registered
+                console.log(`🚫 Unregistered user: ${fromPhone}`);
+                await sendWhatsApp(fromPhone, "Sorry, you don't appear to be registered for any tour. Please contact your tour organizer. 🏖️");
+            } else if (status === 403) {
+                // Expired
+                console.log(`⏳ Expired access: ${fromPhone}`);
+                await sendWhatsApp(fromPhone, "Your access to this tour chat has expired. We hope you had a wonderful trip! 🏝️");
+            } else {
+                // Other API error
+                console.error(`⚠️ Verification failed for ${fromPhone} (Status ${status}):`, data);
+            }
+        }).catch(err => {
+            console.error('❌ Authentication flow error:', err.message);
         });
 
     } catch (err) {
