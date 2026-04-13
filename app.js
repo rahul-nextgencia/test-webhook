@@ -241,8 +241,12 @@ app.post('/', (req, res) => {
         const fromPhone = message.from;
         const messageId = message.id;
 
+        console.log(`🔍 [Auth Check] Phone: ${fromPhone}`);
+
         // Verify user before processing
         verifyUser(fromPhone).then(async ({ status, data }) => {
+            console.log(`🔍 [Auth Result] Phone: ${fromPhone}, Status: ${status}`);
+            
             if (status === 200) {
                 // Authorized — proceed to handle message
                 handleMessage(userMessage, fromPhone, messageId).catch(err => {
