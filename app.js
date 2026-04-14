@@ -208,7 +208,12 @@ async function handleMessage(userMessage, toPhone, messageId) {
     }
 
     // Aggregate all streamed tokens into a single string
-    const fullReply = await aggregateStream(llmResponse);
+    let fullReply = await aggregateStream(llmResponse);
+
+    // Convert LLM Markdown to WhatsApp formatting
+    fullReply = fullReply.replace(/\*\*([\s\S]*?)\*\*/g, '*$1*'); // Convert **bold** to *bold*
+    fullReply = fullReply.replace(/^(#{1,6})\s+(.*)$/gm, '*$2*'); // Convert ## headers to *bold*
+
     console.log(`🤖 LLM reply: "${fullReply}"`);
 
     // Send the full reply back to the user on WhatsApp
