@@ -367,7 +367,17 @@ app.post('/', async (req, res) => {
             console.log(`🔍 [Auth Result] Phone: ${fromPhone}, Status: ${status}, Data: ${JSON.stringify(data)}`);
             
             if (status === 200 && data.exists === true) {
-                const tours = data.tours || [];
+                let tours = data.tours || [];
+                
+                // Fallback for legacy single-tour response format
+                if (tours.length === 0 && data.itinerary_id) {
+                    tours = [{
+                        tour_id: data.tour_id,
+                        itinerary_id: data.itinerary_id,
+                        tour_name: data.tour_name,
+                        tour_status: data.tour_status || 'active'
+                    }];
+                }
 
                 const activeTours = tours.filter(t => t.tour_status !== 'expired');
 
