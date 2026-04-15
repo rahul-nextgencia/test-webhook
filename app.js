@@ -14,7 +14,10 @@ const VERIFY_API_URL = 'https://tours-ai-api-anffe0brajezcndk.centralus-01.azure
 const REDIS_URL = process.env.REDIS_URL;
 
 // Initialize Redis
-const redis = REDIS_URL ? new Redis(REDIS_URL, { tls: { rejectUnauthorized: false } }) : null;
+const redis = REDIS_URL ? new Redis(REDIS_URL, { 
+    tls: { rejectUnauthorized: false },
+    maxRetriesPerRequest: null 
+}) : null;
 if (redis) {
     redis.on('connect', () => console.log('Connected to Redis ✅'));
     redis.on('error', (err) => console.error('Redis error ❌', err));
@@ -361,7 +364,18 @@ app.post('/', async (req, res) => {
             console.log(`🔍 [Auth Result] Phone: ${fromPhone}, Status: ${status}, Data: ${JSON.stringify(data)}`);
             
             if (status === 200 && data.exists === true) {
-                const tours = data.tours || [];
+                let tours = data.tours || [];
+                
+                // Fallback for legacy single-tour response format
+                if (tours.length === 0 && data.itinerary_id) {
+                    tours = [{
+                        tour_id: data.tour_id,
+                        itinerary_id: data.itinerary_id,
+                        tour_name: data.tour_name,
+                        tour_status: data.tour_status || 'active'
+                    }];
+                }
+
                 const activeTours = tours.filter(t => t.tour_status !== 'expired');
 
                 if (activeTours.length === 0) {
