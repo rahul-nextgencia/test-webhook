@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const Redis = require('ioredis');
 const app = express();
@@ -17,6 +18,8 @@ const redis = REDIS_URL ? new Redis(REDIS_URL, { tls: { rejectUnauthorized: fals
 if (redis) {
     redis.on('connect', () => console.log('Connected to Redis ✅'));
     redis.on('error', (err) => console.error('Redis error ❌', err));
+} else {
+    console.error('Redis initialization failed ❌ - REDIS_URL is missing');
 }
 
 // GET route - handles both browser visits and Meta verification
