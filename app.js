@@ -343,14 +343,17 @@ app.post('/', async (req, res) => {
             const userMessage = message.text.body;
             console.log(`🔍 [Auth Check] Phone: ${fromPhone}`);
 
-            if (userMessage.toLowerCase() === 'switch tour') {
+            const lowerMessage = userMessage.toLowerCase();
+            const isSwitchCommand = lowerMessage === 'switch tour' || lowerMessage === 'change tour';
+
+            if (isSwitchCommand) {
                 await redis.del(`wa:session:${fromPhone}`);
                 // Proceed to verification to show the list again
             }
 
             // Check for existing session
             const sessionData = await redis.get(`wa:session:${fromPhone}`);
-            if (sessionData && userMessage.toLowerCase() !== 'switch tour') {
+            if (sessionData && !isSwitchCommand) {
                 const session = JSON.parse(sessionData);
                 await redis.expire(`wa:session:${fromPhone}`, 86400); // Rolling 24h
                 handleMessage(userMessage, fromPhone, messageId, session.itineraryId).catch(err => {
@@ -390,9 +393,13 @@ app.post('/', async (req, res) => {
                         itineraryId: tour.itinerary_id
                     }), 'EX', 86400);
                     
-                    handleMessage(userMessage, fromPhone, messageId, tour.itinerary_id).catch(err => {
-                        console.error('❌ handleMessage error:', err.message);
-                    });
+                    if (isSwitchCommand) {
+                        await sendWhatsApp(fromPhone, `You are currently registered for only one active tour: *${tour.tour_name}*. I'm ready to answer any questions about it! 🏖️`);
+                    } else {
+                        handleMessage(userMessage, fromPhone, messageId, tour.itinerary_id).catch(err => {
+                            console.error('❌ handleMessage error:', err.message);
+                        });
+                    }
                 } else {
                     // Multiple tours - send list
                     await redis.set(`wa:pending:${fromPhone}`, JSON.stringify(activeTours), 'EX', 900); // 15 min
