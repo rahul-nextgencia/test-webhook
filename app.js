@@ -318,11 +318,11 @@ app.post('/', async (req, res) => {
             console.log(`🔘 Tour Selected by ${fromPhone}: ${selectedTourName} (${selectedTourId})`);
             
             // Get pending tours to find the correct itinerary_id
-            const pendingData = await redis.get(`wa:pending:${fromPhone}`);
+            const pendingData = redis ? await redis.get(`wa:pending:${fromPhone}`) : null;
             if (pendingData) {
                 const tours = JSON.parse(pendingData);
                 const tour = tours.find(t => t.tour_id === selectedTourId);
-                if (tour) {
+                if (tour && redis) {
                     // Pin session to this tour
                     await redis.set(`wa:session:${fromPhone}`, JSON.stringify({
                         activeTourId: selectedTourId,
@@ -346,16 +346,16 @@ app.post('/', async (req, res) => {
             const lowerMessage = userMessage.toLowerCase();
             const isSwitchCommand = lowerMessage === 'switch tour' || lowerMessage === 'change tour';
 
-            if (isSwitchCommand) {
+            if (isSwitchCommand && redis) {
                 await redis.del(`wa:session:${fromPhone}`);
                 // Proceed to verification to show the list again
             }
 
             // Check for existing session
-            const sessionData = await redis.get(`wa:session:${fromPhone}`);
+            const sessionData = redis ? await redis.get(`wa:session:${fromPhone}`) : null;
             if (sessionData && !isSwitchCommand) {
                 const session = JSON.parse(sessionData);
-                await redis.expire(`wa:session:${fromPhone}`, 86400); // Rolling 24h
+                if (redis) await redis.expire(`wa:session:${fromPhone}`, 86400); // Rolling 24h
                 handleMessage(userMessage, fromPhone, messageId, session.itineraryId).catch(err => {
                     console.error('❌ handleMessage error:', err.message);
                 });
@@ -367,17 +367,7 @@ app.post('/', async (req, res) => {
             console.log(`🔍 [Auth Result] Phone: ${fromPhone}, Status: ${status}, Data: ${JSON.stringify(data)}`);
             
             if (status === 200 && data.exists === true) {
-                let tours = data.tours || [];
-                
-                // Fallback for legacy single-tour response format
-                if (tours.length === 0 && data.itinerary_id) {
-                    tours = [{
-                        tour_id: data.tour_id,
-                        itinerary_id: data.itinerary_id,
-                        tour_name: data.tour_name,
-                        tour_status: data.tour_status || 'active'
-                    }];
-                }
+                const tours = data.tours || [];
 
                 const activeTours = tours.filter(t => t.tour_status !== 'expired');
 
@@ -387,11 +377,13 @@ app.post('/', async (req, res) => {
                 } else if (activeTours.length === 1) {
                     // Auto-select
                     const tour = activeTours[0];
-                    await redis.set(`wa:session:${fromPhone}`, JSON.stringify({
-                        activeTourId: tour.tour_id,
-                        activeTourName: tour.tour_name,
-                        itineraryId: tour.itinerary_id
-                    }), 'EX', 86400);
+                    if (redis) {
+                        await redis.set(`wa:session:${fromPhone}`, JSON.stringify({
+                            activeTourId: tour.tour_id,
+                            activeTourName: tour.tour_name,
+                            itineraryId: tour.itinerary_id
+                        }), 'EX', 86400);
+                    }
                     
                     if (isSwitchCommand) {
                         await sendWhatsApp(fromPhone, `You are currently registered for only one active tour: *${tour.tour_name}*. I'm ready to answer any questions about it! 🏖️`);
@@ -402,8 +394,18 @@ app.post('/', async (req, res) => {
                     }
                 } else {
                     // Multiple tours - send list
-                    await redis.set(`wa:pending:${fromPhone}`, JSON.stringify(activeTours), 'EX', 900); // 15 min
-                    await sendTourSelectionList(fromPhone, activeTours);
+                    if (redis) {
+                        await redis.set(`wa:pending:${fromPhone}`, JSON.stringify(activeTours), 'EX', 900); // 15 min
+                        await sendTourSelectionList(fromPhone, activeTours);
+                    } else {
+                        // If multiple tours found but Redis is down, we can't reliably show selection
+                        // Fallback: pick the first one and warn
+                        console.warn(`⚠️ Multiple tours for ${fromPhone} but Redis is down. Falling back to first tour.`);
+                        const tour = activeTours[0];
+                        handleMessage(userMessage, fromPhone, messageId, tour.itinerary_id).catch(err => {
+                            console.error('❌ handleMessage error:', err.message);
+                        });
+                    }
                 }
             } else if (status === 404 || (status === 200 && data.exists === false)) {
                 console.log(`🚫 Unregistered user: ${fromPhone}`);
