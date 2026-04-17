@@ -150,6 +150,16 @@ async function reactToMessage(toPhone, messageId, emoji) {
     }
 }
 
+// Constructs the welcome greeting string.
+function buildWelcomeMessage(tourName, userName) {
+    const greeting = userName ? `👋 Welcome ${userName}!` : `👋 Welcome!`;
+    if (tourName) {
+        return `${greeting} I'm your tour assistant for *${tourName}*.\n\nAsk me anything about your trip — itinerary, activities, packing tips, and more.\n\n💡 Type *switch tour* or *change tour* at any time to switch between your enrolled tours.`;
+    } else {
+        return `${greeting} I can see you're enrolled in multiple tours.\n\nPlease select the tour you'd like to chat about from the list below 👇\n\n💡 Type *switch tour* or *change tour* at any time to come back to this selection.`;
+    }
+}
+
 // Sends a WhatsApp message to the given phone number
 async function sendWhatsApp(toPhone, messageText) {
     const payload = {
@@ -309,6 +319,7 @@ app.post('/', async (req, res) => {
 
         const fromPhone = message.from;
         const messageId = message.id;
+        const userName = change?.contacts?.[0]?.profile?.name || '';
 
         // 1. Handle Interactive List Reply (Tour Selection)
         if (message.type === 'interactive' && message.interactive?.type === 'list_reply') {
@@ -330,7 +341,7 @@ app.post('/', async (req, res) => {
                         itineraryId: tour.itinerary_id
                     }), 'EX', 86400); // 24h
                     
-                    await sendWhatsApp(fromPhone, `Got it! I'm now set to answer questions about the *${selectedTourName}* 🏖️\n\nYou can type 'switch tour' anytime to pick a different one.`);
+                    await sendWhatsApp(fromPhone, buildWelcomeMessage(selectedTourName, userName));
                     return;
                 }
             }
@@ -398,14 +409,14 @@ app.post('/', async (req, res) => {
                     if (isSwitchCommand) {
                         await sendWhatsApp(fromPhone, `You are currently registered for only one active tour: *${tour.tour_name}*. I'm ready to answer any questions about it! 🏖️`);
                     } else {
-                        handleMessage(userMessage, fromPhone, messageId, tour.itinerary_id).catch(err => {
-                            console.error('❌ handleMessage error:', err.message);
-                        });
+                        // New session: send welcome only. User's next message will go to the LLM.
+                        await sendWhatsApp(fromPhone, buildWelcomeMessage(tour.tour_name, userName));
                     }
                 } else {
                     // Multiple tours - send list
                     if (redis) {
                         await redis.set(`wa:pending:${fromPhone}`, JSON.stringify(activeTours), 'EX', 900); // 15 min
+                        await sendWhatsApp(fromPhone, buildWelcomeMessage(null, userName)); // multi-tour variant
                         await sendTourSelectionList(fromPhone, activeTours);
                     } else {
                         // If multiple tours found but Redis is down, we can't reliably show selection
