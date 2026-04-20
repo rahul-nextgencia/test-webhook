@@ -381,7 +381,6 @@ app.post('/', async (req, res) => {
                         itineraryId: tour.itinerary_id
                     }), 'EX', 86400); // 24h
                     
-                    await sendWhatsApp(fromPhone, buildGreeting(userName));
                     await sendWhatsApp(fromPhone, buildInstructions(selectedTourName));
                     return;
                 }
