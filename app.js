@@ -151,13 +151,17 @@ async function reactToMessage(toPhone, messageId, emoji) {
     }
 }
 
-// Constructs the welcome greeting string.
-function buildWelcomeMessage(tourName, userName) {
-    const greeting = userName ? `👋 Welcome ${userName}!` : `👋 Welcome!`;
+// Constructs the greeting part of the welcome message.
+function buildGreeting(userName) {
+    return userName ? `👋 Welcome ${userName}!` : `👋 Welcome!`;
+}
+
+// Constructs the instructions/info part of the welcome message.
+function buildInstructions(tourName) {
     if (tourName) {
-        return `${greeting} I'm your tour assistant for *${tourName}*.\n\nAsk me anything about your trip — itinerary, activities, packing tips, and more.\n\n💡 Type *switch tour* or *change tour* at any time to switch between your enrolled tours.`;
+        return `I'm your tour assistant for *${tourName}*.\n\nAsk me anything about your trip — itinerary, activities, packing tips, and more.\n\n💡 Type *switch tour* or *change tour* at any time to switch between your enrolled tours.`;
     } else {
-        return `${greeting} I can see you're enrolled in multiple tours.\n\nPlease select the tour you'd like to chat about from the list below 👇\n\n💡 Type *switch tour* or *change tour* at any time to come back to this selection.`;
+        return `I can see you're enrolled in multiple tours.\n\nPlease select the tour you'd like to chat about from the list below 👇\n\n💡 Type *switch tour* or *change tour* at any time to come back to this selection.`;
     }
 }
 
@@ -206,7 +210,7 @@ async function sendTourSelectionList(toPhone, tours) {
                 text: 'Tour Selection'
             },
             body: {
-                text: 'We found multiple tours registered for your number. Which one would you like to chat about?'
+                text: 'I can see you\'re enrolled in multiple tours.\n\nWhich one would you like to chat about? 👇\n\n💡 Type *switch tour* or *change tour* at any time to come back to this selection.'
             },
             footer: {
                 text: 'Please select from the list below'
@@ -377,7 +381,8 @@ app.post('/', async (req, res) => {
                         itineraryId: tour.itinerary_id
                     }), 'EX', 86400); // 24h
                     
-                    await sendWhatsApp(fromPhone, buildWelcomeMessage(selectedTourName, userName));
+                    await sendWhatsApp(fromPhone, buildGreeting(userName));
+                    await sendWhatsApp(fromPhone, buildInstructions(selectedTourName));
                     return;
                 }
             }
@@ -445,14 +450,15 @@ app.post('/', async (req, res) => {
                     if (isSwitchCommand) {
                         await sendWhatsApp(fromPhone, `You are currently registered for only one active tour: *${tour.tour_name}*. I'm ready to answer any questions about it! 🏖️`);
                     } else {
-                        // New session: send welcome only. User's next message will go to the LLM.
-                        await sendWhatsApp(fromPhone, buildWelcomeMessage(tour.tour_name, userName));
+                        // New session: send welcome messages. User's next message will go to the LLM.
+                        await sendWhatsApp(fromPhone, buildGreeting(userName));
+                        await sendWhatsApp(fromPhone, buildInstructions(tour.tour_name));
                     }
                 } else {
-                    // Multiple tours - send list
+                    // Multiple tours - send sequence: Greeting -> Interactive List (with instructions)
                     if (redis) {
                         await redis.set(`wa:pending:${fromPhone}`, JSON.stringify(activeTours), 'EX', 900); // 15 min
-                        await sendWhatsApp(fromPhone, buildWelcomeMessage(null, userName)); // multi-tour variant
+                        await sendWhatsApp(fromPhone, buildGreeting(userName));
                         await sendTourSelectionList(fromPhone, activeTours);
                     } else {
                         // If multiple tours found but Redis is down, we can't reliably show selection
