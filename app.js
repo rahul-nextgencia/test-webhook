@@ -241,6 +241,26 @@ async function sendTourSelectionList(toPhone, tours) {
 }
 
 /**
+ * Verifies a phone number against the tour database.
+ * Returns an object with the verification status and user data.
+ */
+async function verifyUser(phone) {
+    try {
+        const response = await fetch(VERIFY_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone })
+        });
+
+        const data = await response.json();
+        return { status: response.status, data };
+    } catch (err) {
+        console.error('⚠️ Verification API error:', err.message);
+        return { status: 500, error: err.message };
+    }
+}
+
+/**
  * Downloads a WhatsApp voice message and transcribes it via the /transcribe API.
  * Returns the transcribed text string.
  */
