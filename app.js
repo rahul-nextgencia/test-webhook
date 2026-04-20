@@ -11,6 +11,7 @@ const WA_TOKEN = process.env.WA_TOKEN || 'YOUR_WHATSAPP_TOKEN';
 const LLM_API_URL = process.env.LLM_API_URL || 'https://tours-ai-api-anffe0brajezcndk.centralus-01.azurewebsites.net/azure_ai_search';
 const WA_API_URL = 'https://graph.facebook.com/v25.0/1080983858426889/messages';
 const VERIFY_API_URL = 'https://tours-ai-api-anffe0brajezcndk.centralus-01.azurewebsites.net/verifyNumber';
+const TRANSCRIBE_API_URL = process.env.TRANSCRIBE_API_URL || 'https://tours-ai-api-anffe0brajezcndk.centralus-01.azurewebsites.net/transcribe';
 const REDIS_URL = process.env.REDIS_URL;
 
 // Initialize Redis
@@ -240,24 +241,39 @@ async function sendTourSelectionList(toPhone, tours) {
 }
 
 /**
- * Verifies a phone number against the tour database.
- * Returns an object with the verification status and user data.
+ * Downloads a WhatsApp voice message and transcribes it via the /transcribe API.
+ * Returns the transcribed text string.
  */
-async function verifyUser(phone) {
-    try {
-        const response = await fetch(VERIFY_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone })
-        });
+async function downloadAndTranscribeAudio(mediaId) {
+    // Step 1: Resolve the media download URL from WhatsApp
+    const metaRes = await fetch(`https://graph.facebook.com/v25.0/${mediaId}`, {
+        headers: { Authorization: `Bearer ${WA_TOKEN}` }
+    });
+    if (!metaRes.ok) throw new Error(`WA media-info error ${metaRes.status}`);
+    const { url } = await metaRes.json();
 
-        const data = await response.json();
-        return { status: response.status, data };
-    } catch (err) {
-        console.error('⚠️ Verification API error:', err.message);
-        return { status: 500, error: err.message };
-    }
+    // Step 2: Download the audio binary
+    const audioRes = await fetch(url, {
+        headers: { Authorization: `Bearer ${WA_TOKEN}` }
+    });
+    if (!audioRes.ok) throw new Error(`WA media-download error ${audioRes.status}`);
+    const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
+
+    // Step 3: POST binary to POST /transcribe
+    const formData = new FormData();
+    const blob = new Blob([audioBuffer], { type: 'audio/ogg' });
+    formData.append('file', blob, 'voice.ogg');
+
+    const transcribeRes = await fetch(TRANSCRIBE_API_URL, {
+        method: 'POST',
+        body: formData
+    });
+    if (!transcribeRes.ok) throw new Error(`Transcription API error ${transcribeRes.status}: ${await transcribeRes.text()}`);
+
+    const { text } = await transcribeRes.json();
+    return text;
 }
+
 
 // Calls the external LLM API, aggregates the stream, and replies via WhatsApp
 async function handleMessage(userMessage, toPhone, messageId, itineraryId) {
@@ -436,6 +452,34 @@ app.post('/', async (req, res) => {
                 await sendWhatsApp(fromPhone, "Your access to this tour chat has expired. We hope you had a wonderful trip! 🏝️");
             } else {
                 console.error(`⚠️ Unexpected verification state for ${fromPhone} (Status ${status}):`, data);
+            }
+        } else if (message.type === 'audio') {
+            console.log(`🎙️ Voice message from ${fromPhone}, media ID: ${message.audio.id}`);
+            await sendReadReceipt(messageId);
+            await reactToMessage(fromPhone, messageId, '⏳');
+
+            // Gate: only proceed if user has an active session
+            const sessionData = redis ? await redis.get(`wa:session:${fromPhone}`) : null;
+            if (!sessionData) {
+                await reactToMessage(fromPhone, messageId, '❌');
+                await sendWhatsApp(fromPhone, "Please send a text message first to get started, then try your voice message again. 🎙️");
+                return;
+            }
+
+            const session = JSON.parse(sessionData);
+            if (redis) await redis.expire(`wa:session:${fromPhone}`, 86400); // Rolling 24h
+
+            try {
+                const transcribedText = await downloadAndTranscribeAudio(message.audio.id);
+                console.log(`📝 Transcribed: "${transcribedText}"`);
+                // Route through the existing LLM flow, same as a text message
+                handleMessage(transcribedText, fromPhone, messageId, session.itineraryId).catch(err => {
+                    console.error('❌ handleMessage (audio) error:', err.message);
+                });
+            } catch (err) {
+                console.error('❌ Audio transcription error:', err.message);
+                await reactToMessage(fromPhone, messageId, '❌');
+                await sendWhatsApp(fromPhone, "Sorry, I couldn't process your voice message. Please try again or type your question. 🙏");
             }
         } else {
             console.log(`Non-text message (${message.type}) found, skipping.`);
