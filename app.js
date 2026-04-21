@@ -399,6 +399,7 @@ app.post('/', async (req, res) => {
 
             if (isSwitchCommand && redis) {
                 await redis.del(`wa:session:${fromPhone}`);
+                await redis.del(`wa:history:${fromPhone}:${fromPhone}`);
                 // Proceed to verification to show the list again
             }
 
