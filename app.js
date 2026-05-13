@@ -8,10 +8,10 @@ app.use(express.json());
 const port = process.env.PORT || 3000;
 const verifyToken = process.env.VERIFY_TOKEN;
 const WA_TOKEN = process.env.WA_TOKEN || 'YOUR_WHATSAPP_TOKEN';
-const LLM_API_URL = process.env.LLM_API_URL || 'https://tours-ai-api-anffe0brajezcndk.centralus-01.azurewebsites.net/azure_ai_search';
+const LLM_API_URL = process.env.LLM_API_URL || 'https://tours-ai-serach-api-ghbucpa8hqdea2d3.centralus-01.azurewebsites.net/api/v1/search';
 const WA_API_URL = 'https://graph.facebook.com/v25.0/1080983858426889/messages';
-const VERIFY_API_URL = 'https://tours-ai-api-anffe0brajezcndk.centralus-01.azurewebsites.net/verifyNumber';
-const TRANSCRIBE_API_URL = process.env.TRANSCRIBE_API_URL || 'https://tours-ai-api-anffe0brajezcndk.centralus-01.azurewebsites.net/transcribe';
+const VERIFY_API_URL = 'https://tours-ai-serach-api-ghbucpa8hqdea2d3.centralus-01.azurewebsites.net/api/v1/auth/verify-number';
+const TRANSCRIBE_API_URL = process.env.TRANSCRIBE_API_URL || 'https://tours-ai-serach-api-ghbucpa8hqdea2d3.centralus-01.azurewebsites.net/api/v1/transcribe';
 const REDIS_URL = process.env.REDIS_URL;
 
 // Initialize Redis
