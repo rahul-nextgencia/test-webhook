@@ -12,18 +12,23 @@ const LLM_API_URL = process.env.LLM_API_URL || 'https://tours-ai-serach-api-ghbu
 const WA_API_URL = 'https://graph.facebook.com/v25.0/1080983858426889/messages';
 const VERIFY_API_URL = 'https://tours-ai-serach-api-ghbucpa8hqdea2d3.centralus-01.azurewebsites.net/api/v1/auth/verify-number';
 const TRANSCRIBE_API_URL = process.env.TRANSCRIBE_API_URL || 'https://tours-ai-serach-api-ghbucpa8hqdea2d3.centralus-01.azurewebsites.net/api/v1/transcribe';
-const REDIS_URL = process.env.REDIS_URL;
+const AZURE_CACHE_URL = process.env.AZURE_CACHE_URL;
+const AZURE_CACHE_KEY = process.env.AZURE_CACHE_KEY;
 
 // Initialize Redis
-const redis = REDIS_URL ? new Redis(REDIS_URL, { 
+const redis = (AZURE_CACHE_URL && AZURE_CACHE_KEY) ? new Redis({
+    host: AZURE_CACHE_URL.split(':')[0],
+    port: parseInt(AZURE_CACHE_URL.split(':')[1]) || 6380,
+    password: AZURE_CACHE_KEY,
     tls: { rejectUnauthorized: false },
-    maxRetriesPerRequest: null 
+    maxRetriesPerRequest: null
 }) : null;
+
 if (redis) {
     redis.on('connect', () => console.log('Connected to Redis ✅'));
     redis.on('error', (err) => console.error('Redis error ❌', err));
 } else {
-    console.error('Redis initialization failed ❌ - REDIS_URL is missing');
+    console.error('Redis initialization failed ❌ - AZURE_CACHE_URL or AZURE_CACHE_KEY is missing');
 }
 
 // GET route - handles both browser visits and Meta verification
