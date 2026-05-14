@@ -15,17 +15,21 @@ const TRANSCRIBE_API_URL = process.env.TRANSCRIBE_API_URL || 'https://tours-ai-s
 const AZURE_CACHE_URL = process.env.AZURE_CACHE_URL;
 const AZURE_CACHE_KEY = process.env.AZURE_CACHE_KEY;
 
-// Initialize Redis
-const redis = (AZURE_CACHE_URL && AZURE_CACHE_KEY) ? new Redis({
-    host: AZURE_CACHE_URL.split(':')[0],
-    port: parseInt(AZURE_CACHE_URL.split(':')[1]) || 6380,
-    password: AZURE_CACHE_KEY,
-    tls: { rejectUnauthorized: false },
-    maxRetriesPerRequest: null
-}) : null;
+if (AZURE_CACHE_URL && AZURE_CACHE_KEY) {
+    const [host, portStr] = AZURE_CACHE_URL.split(':');
+    const port = parseInt(portStr) || 6380;
+    
+    redis = new Redis({
+        host: host,
+        port: port,
+        username: 'default',
+        password: AZURE_CACHE_KEY,
+        tls: { rejectUnauthorized: false },
+        maxRetriesPerRequest: null
+    });
 
-if (redis) {
-    redis.on('connect', () => console.log('Connected to Redis ✅'));
+    redis.on('connect', () => console.log('Redis TCP connected 🔌'));
+    redis.on('ready', () => console.log('Redis is ready and authenticated 🚀'));
     redis.on('error', (err) => console.error('Redis error ❌', err));
 } else {
     console.error('Redis initialization failed ❌ - AZURE_CACHE_URL or AZURE_CACHE_KEY is missing');
