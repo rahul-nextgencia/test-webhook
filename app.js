@@ -303,29 +303,40 @@ async function downloadAndTranscribeAudio(mediaId) {
     });
     if (!transcribeRes.ok) throw new Error(`Transcription API error ${transcribeRes.status}: ${await transcribeRes.text()}`);
 
-    const { text } = await transcribeRes.json();
-    return text;
+    const data = await transcribeRes.json();
+    console.log('🎙️ Transcription API Raw Response:', JSON.stringify(data));
+    return data.text || data.transcription || "";
 }
 
 
 // Calls the external LLM API, aggregates the stream, and replies via WhatsApp
 async function handleMessage(userMessage, toPhone, messageId, itineraryId) {
+    if (!userMessage || String(userMessage).trim() === "") {
+        console.warn(`⚠️ Skipping LLM call: message is empty or undefined.`);
+        await reactToMessage(toPhone, messageId, '❓');
+        return;
+    }
+
     console.log(`📩 Message from ${toPhone} (Itinerary: ${itineraryId}): "${userMessage}"`);
 
     // Mark message as read (blue ticks) and react with ⏳ to signal processing
     await sendReadReceipt(messageId);
     await reactToMessage(toPhone, messageId, '⏳');
 
+    const payload = {
+        message: userMessage,
+        user_id: toPhone,
+        session_id: toPhone,
+        itinerary_id: itineraryId || ""
+    };
+
+    console.log('🤖 Calling LLM with payload:', JSON.stringify(payload));
+
     // Call the external LLM API
     const llmResponse = await fetch(LLM_API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            message: userMessage,
-            user_id: toPhone,
-            session_id: toPhone,
-            itinerary_id: itineraryId
-        })
+        body: JSON.stringify(payload)
     });
 
     if (!llmResponse.ok) {
