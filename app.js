@@ -357,7 +357,7 @@ app.post('/', async (req, res) => {
 
         if (!message) return;
 
-        const fromPhone = message.from;
+        const fromPhone = message.from.startsWith('+') ? message.from : `+${message.from}`;
         const messageId = message.id;
         const userName = change?.contacts?.[0]?.profile?.name || '';
 
