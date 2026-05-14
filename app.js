@@ -305,6 +305,7 @@ async function downloadAndTranscribeAudio(mediaId) {
 
     const data = await transcribeRes.json();
     console.log('🎙️ Transcription API Raw Response:', JSON.stringify(data));
+    if (typeof data === 'string') return data;
     return data.text || data.transcription || "";
 }
 
