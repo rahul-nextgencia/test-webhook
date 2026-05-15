@@ -440,7 +440,15 @@ app.post('/', async (req, res) => {
             console.log(`🔍 [Auth Result] Phone: ${fromPhone}, Status: ${status}, Data: ${JSON.stringify(data)}`);
             
             if (status === 200 && data.exists === true) {
-                let tours = data.tours || [];
+                // Map the new API response pattern to the expected internal format
+                let tours = (data.tours || []).map(t => ({
+                    tour_id: t.tour_id,
+                    itinerary_id: t.tour_id, // Use tour_id as itinerary_id for the search endpoint
+                    tour_name: t.title,
+                    tour_start_date: t.start_date,
+                    tour_end_date: t.end_date,
+                    tour_status: t.status
+                }));
                 
                 // Fallback for legacy single-tour response format
                 if (tours.length === 0 && data.itinerary_id) {
