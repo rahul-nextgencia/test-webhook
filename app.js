@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const Redis = require('ioredis');
+const sharp = require('sharp');
 const app = express();
 
 app.use(express.json());
@@ -236,39 +237,88 @@ async function sendWhatsAppImage(toPhone, imageUrl, caption = '') {
     return true;
 }
 
-// Sends a native WhatsApp STICKER message (.webp files).
-// WhatsApp Cloud API requires .webp to use type='sticker', NOT type='image'.
+// Converts a .webp URL to JPEG and sends it as a native WhatsApp image.
+// Flow: download webp → convert to JPEG via sharp → upload to WA media API → send as image.
 // Returns true on success, false on failure.
-async function sendWhatsAppSticker(toPhone, stickerUrl) {
-    console.log(`🎭 Attempting to send STICKER (.webp) to ${toPhone}: ${stickerUrl}`);
+async function convertAndSendWebpAsImage(toPhone, webpUrl) {
+    console.log(`🔄 Converting + uploading webp for ${toPhone}: ${webpUrl}`);
 
-    const payload = {
+    // Step A: Download the .webp from Azure Blob
+    const downloadRes = await fetch(webpUrl);
+    if (!downloadRes.ok) {
+        console.error(`❌ Failed to download webp (HTTP ${downloadRes.status}): ${webpUrl}`);
+        return false;
+    }
+    const webpBuffer = Buffer.from(await downloadRes.arrayBuffer());
+
+    // Step B: Convert to JPEG using sharp
+    let jpegBuffer;
+    try {
+        jpegBuffer = await sharp(webpBuffer).jpeg({ quality: 85 }).toBuffer();
+        console.log(`🖼️ Converted to JPEG: ${jpegBuffer.length} bytes`);
+    } catch (err) {
+        console.error(`❌ sharp conversion failed: ${err.message}`);
+        return false;
+    }
+
+    // Step C: Upload JPEG to WhatsApp media endpoint to get a media_id
+    const WA_PHONE_ID = WA_API_URL.match(/\/v\d+\.\d+\/([^/]+)\/messages/)?.[1];
+    if (!WA_PHONE_ID) {
+        console.error('❌ Could not extract phone number ID from WA_API_URL');
+        return false;
+    }
+    const uploadUrl = `https://graph.facebook.com/v25.0/${WA_PHONE_ID}/media`;
+
+    const formData = new FormData();
+    const blob = new Blob([jpegBuffer], { type: 'image/jpeg' });
+    formData.append('file', blob, 'photo.jpg');
+    formData.append('messaging_product', 'whatsapp');
+
+    const uploadRes = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${WA_TOKEN}` },
+        body: formData
+    });
+
+    const uploadText = await uploadRes.text();
+    if (!uploadRes.ok) {
+        console.error(`❌ Media upload failed (HTTP ${uploadRes.status}): ${uploadText}`);
+        return false;
+    }
+
+    let mediaId;
+    try {
+        mediaId = JSON.parse(uploadText).id;
+    } catch {
+        console.error(`❌ Could not parse media upload response: ${uploadText}`);
+        return false;
+    }
+    console.log(`✅ Media uploaded, media_id: ${mediaId}`);
+
+    // Step D: Send as a native WhatsApp image using the media_id
+    const msgPayload = {
         messaging_product: 'whatsapp',
         to: toPhone,
-        type: 'sticker',
-        sticker: {
-            link: stickerUrl
-        }
+        type: 'image',
+        image: { id: mediaId }
     };
 
-    const response = await fetch(WA_API_URL, {
+    const msgRes = await fetch(WA_API_URL, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${WA_TOKEN}`
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(msgPayload)
     });
 
-    const responseText = await response.text();
-
-    if (!response.ok) {
-        console.error(`❌ WhatsApp sticker API rejected (HTTP ${response.status}) for URL: ${stickerUrl}`);
-        console.error(`❌ Error details: ${responseText}`);
+    const msgText = await msgRes.text();
+    if (!msgRes.ok) {
+        console.error(`❌ Image message send failed (HTTP ${msgRes.status}): ${msgText}`);
         return false;
     }
 
-    console.log(`✅ WhatsApp sticker sent to ${toPhone}`);
+    console.log(`✅ Image message sent to ${toPhone} via media_id`);
     return true;
 }
 
@@ -319,11 +369,11 @@ async function sendRichReply(toPhone, replyText) {
         await sendWhatsApp(toPhone, cleanedText);
     }
 
-    // Step 5: Send .webp files as stickers
+    // Step 5: Convert .webp files to JPEG and send as images
     for (const url of webpUrls) {
-        const sent = await sendWhatsAppSticker(toPhone, url);
+        const sent = await convertAndSendWebpAsImage(toPhone, url);
         if (!sent) {
-            console.warn(`⚠️ Sticker send failed, falling back to plain-text URL for: ${url}`);
+            console.warn(`⚠️ webp conversion/send failed, falling back to plain-text URL for: ${url}`);
             await sendWhatsApp(toPhone, `🖼️ ${url}`);
         }
     }
