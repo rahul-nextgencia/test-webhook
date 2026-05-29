@@ -200,8 +200,11 @@ async function sendWhatsApp(toPhone, messageText) {
     console.log(`✅ WhatsApp message sent to ${toPhone}`);
 }
 
-// Sends a native WhatsApp image message (renders inline as a photo)
+// Sends a native WhatsApp IMAGE message (JPEG/PNG/GIF only — renders inline as a photo).
+// Returns true on success, false on failure.
 async function sendWhatsAppImage(toPhone, imageUrl, caption = '') {
+    console.log(`🖼️ Attempting to send IMAGE to ${toPhone}: ${imageUrl}`);
+
     const payload = {
         messaging_product: 'whatsapp',
         to: toPhone,
@@ -221,13 +224,51 @@ async function sendWhatsAppImage(toPhone, imageUrl, caption = '') {
         body: JSON.stringify(payload)
     });
 
+    const responseText = await response.text();
+
     if (!response.ok) {
-        const errText = await response.text();
-        console.warn(`⚠️ WhatsApp image send failed (${response.status}): ${errText}`);
+        console.error(`❌ WhatsApp image API rejected (HTTP ${response.status}) for URL: ${imageUrl}`);
+        console.error(`❌ Error details: ${responseText}`);
         return false;
     }
 
-    console.log(`🖼️ WhatsApp image sent to ${toPhone}`);
+    console.log(`✅ WhatsApp image sent to ${toPhone}`);
+    return true;
+}
+
+// Sends a native WhatsApp STICKER message (.webp files).
+// WhatsApp Cloud API requires .webp to use type='sticker', NOT type='image'.
+// Returns true on success, false on failure.
+async function sendWhatsAppSticker(toPhone, stickerUrl) {
+    console.log(`🎭 Attempting to send STICKER (.webp) to ${toPhone}: ${stickerUrl}`);
+
+    const payload = {
+        messaging_product: 'whatsapp',
+        to: toPhone,
+        type: 'sticker',
+        sticker: {
+            link: stickerUrl
+        }
+    };
+
+    const response = await fetch(WA_API_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${WA_TOKEN}`
+        },
+        body: JSON.stringify(payload)
+    });
+
+    const responseText = await response.text();
+
+    if (!response.ok) {
+        console.error(`❌ WhatsApp sticker API rejected (HTTP ${response.status}) for URL: ${stickerUrl}`);
+        console.error(`❌ Error details: ${responseText}`);
+        return false;
+    }
+
+    console.log(`✅ WhatsApp sticker sent to ${toPhone}`);
     return true;
 }
 
@@ -239,36 +280,64 @@ async function sendWhatsAppImage(toPhone, imageUrl, caption = '') {
  */
 async function sendRichReply(toPhone, replyText) {
     const urlRegex = /https?:\/\/[^\s)>"]+/g;
-    const imageExtRegex = /\.(webp|jpg|jpeg|png|gif)(\?[^\s]*)?$/i;
+    const webpRegex    = /\.webp(\?[^\s]*)?$/i;   // .webp  → send as sticker
+    const imageRegex   = /\.(jpg|jpeg|png|gif)(\?[^\s]*)?$/i; // others → send as image
 
+    const webpUrls  = [];
     const imageUrls = [];
 
-    // Step 1: Extract image URLs from the text; leave document URLs in place
+    // Step 1: Log all URLs found in the reply
+    const allUrls = replyText.match(urlRegex) || [];
+    console.log(`🔍 sendRichReply: found ${allUrls.length} URL(s) in LLM reply:`, allUrls);
+
+    // Step 2: Categorise and extract media URLs from the text
     let cleanedText = replyText.replace(urlRegex, (url) => {
-        if (imageExtRegex.test(url)) {
-            imageUrls.push(url);
-            return ''; // Remove image URL from text — will be sent as native image
+        if (webpRegex.test(url)) {
+            webpUrls.push(url);
+            console.log(`🎭 Detected as WEBP/sticker URL: ${url}`);
+            return ''; // Remove from text
         }
-        return url; // Keep document/other URLs in the text
+        if (imageRegex.test(url)) {
+            imageUrls.push(url);
+            console.log(`🖼️  Detected as IMAGE URL: ${url}`);
+            return ''; // Remove from text
+        }
+        console.log(`📄  Detected as DOCUMENT/OTHER URL (kept in text): ${url}`);
+        return url;
     });
 
-    // Step 2: Tidy up the text after image URL removal
+    console.log(`🔍 sendRichReply: ${webpUrls.length} sticker(s), ${imageUrls.length} image(s) to send natively`);
+
+    // Step 3: Tidy up the text after media URL removal
     cleanedText = cleanedText
         .replace(/^[•\-\*]\s*$/gm, '')   // Remove now-empty bullet points
         .replace(/\n{3,}/g, '\n\n')        // Collapse excess blank lines
         .trim();
 
-    // Step 3: Send the cleaned text (if anything remains)
+    // Step 4: Send the cleaned text (if anything remains)
     if (cleanedText) {
         await sendWhatsApp(toPhone, cleanedText);
     }
 
-    // Step 4: Send each gallery image as a native WhatsApp image message
-    for (const imageUrl of imageUrls) {
-        await sendWhatsAppImage(toPhone, imageUrl);
+    // Step 5: Send .webp files as stickers
+    for (const url of webpUrls) {
+        const sent = await sendWhatsAppSticker(toPhone, url);
+        if (!sent) {
+            console.warn(`⚠️ Sticker send failed, falling back to plain-text URL for: ${url}`);
+            await sendWhatsApp(toPhone, `🖼️ ${url}`);
+        }
     }
 
-    console.log(`📤 Rich reply sent to ${toPhone}: ${imageUrls.length} image(s), text=${!!cleanedText}`);
+    // Step 6: Send .jpg/.png/.gif files as images
+    for (const url of imageUrls) {
+        const sent = await sendWhatsAppImage(toPhone, url);
+        if (!sent) {
+            console.warn(`⚠️ Image send failed, falling back to plain-text URL for: ${url}`);
+            await sendWhatsApp(toPhone, `🖼️ ${url}`);
+        }
+    }
+
+    console.log(`📤 Rich reply done for ${toPhone}: ${webpUrls.length} sticker(s), ${imageUrls.length} image(s), text=${!!cleanedText}`);
 }
 
 // Sends a WhatsApp Interactive List Message for tour selection
