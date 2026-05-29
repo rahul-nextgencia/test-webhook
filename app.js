@@ -200,6 +200,77 @@ async function sendWhatsApp(toPhone, messageText) {
     console.log(`✅ WhatsApp message sent to ${toPhone}`);
 }
 
+// Sends a native WhatsApp image message (renders inline as a photo)
+async function sendWhatsAppImage(toPhone, imageUrl, caption = '') {
+    const payload = {
+        messaging_product: 'whatsapp',
+        to: toPhone,
+        type: 'image',
+        image: {
+            link: imageUrl,
+            ...(caption && { caption })
+        }
+    };
+
+    const response = await fetch(WA_API_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${WA_TOKEN}`
+        },
+        body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+        const errText = await response.text();
+        console.warn(`⚠️ WhatsApp image send failed (${response.status}): ${errText}`);
+        return false;
+    }
+
+    console.log(`🖼️ WhatsApp image sent to ${toPhone}`);
+    return true;
+}
+
+/**
+ * Parses the LLM reply text and sends a rich WhatsApp reply:
+ *  - Image URLs (.webp, .jpg, .jpeg, .png, .gif) are sent as native inline image messages.
+ *  - Document URLs (.pdf, .doc, etc.) are kept in the text with their LLM-provided label.
+ *  - The remaining cleaned text is sent as a standard text message.
+ */
+async function sendRichReply(toPhone, replyText) {
+    const urlRegex = /https?:\/\/[^\s)>"]+/g;
+    const imageExtRegex = /\.(webp|jpg|jpeg|png|gif)(\?[^\s]*)?$/i;
+
+    const imageUrls = [];
+
+    // Step 1: Extract image URLs from the text; leave document URLs in place
+    let cleanedText = replyText.replace(urlRegex, (url) => {
+        if (imageExtRegex.test(url)) {
+            imageUrls.push(url);
+            return ''; // Remove image URL from text — will be sent as native image
+        }
+        return url; // Keep document/other URLs in the text
+    });
+
+    // Step 2: Tidy up the text after image URL removal
+    cleanedText = cleanedText
+        .replace(/^[•\-\*]\s*$/gm, '')   // Remove now-empty bullet points
+        .replace(/\n{3,}/g, '\n\n')        // Collapse excess blank lines
+        .trim();
+
+    // Step 3: Send the cleaned text (if anything remains)
+    if (cleanedText) {
+        await sendWhatsApp(toPhone, cleanedText);
+    }
+
+    // Step 4: Send each gallery image as a native WhatsApp image message
+    for (const imageUrl of imageUrls) {
+        await sendWhatsAppImage(toPhone, imageUrl);
+    }
+
+    console.log(`📤 Rich reply sent to ${toPhone}: ${imageUrls.length} image(s), text=${!!cleanedText}`);
+}
+
 // Sends a WhatsApp Interactive List Message for tour selection
 async function sendTourSelectionList(toPhone, tours) {
     const rows = tours.map(tour => ({
@@ -356,8 +427,8 @@ async function handleMessage(userMessage, toPhone, messageId, itineraryId) {
 
     console.log(`🤖 LLM reply: "${fullReply}"`);
 
-    // Send the full reply back to the user on WhatsApp
-    await sendWhatsApp(toPhone, fullReply);
+    // Send the rich reply (images inline, docs labelled cleanly)
+    await sendRichReply(toPhone, fullReply);
 
     // React with ✅ to confirm the reply was sent successfully
     await reactToMessage(toPhone, messageId, '✅');
