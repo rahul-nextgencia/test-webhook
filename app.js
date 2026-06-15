@@ -392,12 +392,20 @@ async function sendRichReply(toPhone, replyText) {
     console.log(`📤 Rich reply done for ${toPhone}: ${webpUrls.length} sticker(s), ${imageUrls.length} image(s), text=${!!cleanedText}`);
 }
 
+// Formats a 'yyyy-mm-dd' date string to '01 July 2026' format
+function formatDate(dateStr) {
+    if (!dateStr) return '';
+    const [year, month, day] = dateStr.split('-');
+    const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+    return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'UTC' });
+}
+
 // Sends a WhatsApp Interactive List Message for tour selection
 async function sendTourSelectionList(toPhone, tours) {
     const rows = tours.map(tour => ({
         id: tour.tour_id,
         title: tour.tour_name.substring(0, 24),
-        description: `${tour.tour_start_date} to ${tour.tour_end_date}`.substring(0, 72)
+        description: `${formatDate(tour.tour_start_date)} to ${formatDate(tour.tour_end_date)}`.substring(0, 72)
     }));
 
     const payload = {
