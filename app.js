@@ -10,9 +10,11 @@ const port = process.env.PORT || 3000;
 const verifyToken = process.env.VERIFY_TOKEN;
 const WA_TOKEN = process.env.WA_TOKEN || 'YOUR_WHATSAPP_TOKEN';
 const LLM_API_URL = process.env.LLM_API_URL || 'https://tours-ai-serach-api-ghbucpa8hqdea2d3.centralus-01.azurewebsites.net/api/v1/search';
-const WA_API_URL = 'https://graph.facebook.com/v25.0/1080983858426889/messages';
+const WA_PHONE_NUMBER_ID = process.env.WA_PHONE_NUMBER_ID || '';
+const WA_API_URL = `https://graph.facebook.com/v25.0/${WA_PHONE_NUMBER_ID}/messages`;
 const VERIFY_API_URL = 'https://tours-ai-serach-api-ghbucpa8hqdea2d3.centralus-01.azurewebsites.net/api/v1/auth/verify-number';
 const TRANSCRIBE_API_URL = process.env.TRANSCRIBE_API_URL || 'https://tours-ai-serach-api-ghbucpa8hqdea2d3.centralus-01.azurewebsites.net/api/v1/transcribe';
+const TOURS_API_BASE = process.env.TOURS_API_BASE || 'https://ngtoursapi-e9gxafbsdpdebnc4.westus2-01.azurewebsites.net/api';
 const AZURE_CACHE_URL = process.env.AZURE_CACHE_URL;
 const AZURE_CACHE_KEY = process.env.AZURE_CACHE_KEY;
 
@@ -464,6 +466,26 @@ async function verifyUser(phone) {
 }
 
 /**
+ * Calls the PATCH endpoint to mark a participant as having joined on WhatsApp.
+ * This is a one-time, fire-and-forget operation — errors are logged but not thrown.
+ */
+async function markWhatsappInitiated(itineraryId, userId) {
+    const url = `${TOURS_API_BASE}/itineraries/${itineraryId}/participants/${userId}/whatsapp-initiated`;
+    console.log(`📲 Marking WhatsApp initiated for user ${userId} on tour ${itineraryId}`);
+    try {
+        const res = await fetch(url, { method: 'PATCH' });
+        if (res.ok) {
+            console.log(`✅ WhatsApp initiated flag set — user ${userId}, tour ${itineraryId}`);
+        } else {
+            const errText = await res.text();
+            console.warn(`⚠️ whatsapp-initiated PATCH failed (HTTP ${res.status}): ${errText}`);
+        }
+    } catch (err) {
+        console.warn(`⚠️ whatsapp-initiated PATCH error:`, err.message);
+    }
+}
+
+/**
  * Downloads a WhatsApp voice message and transcribes it via the /transcribe API.
  * Returns the transcribed text string.
  */
@@ -589,9 +611,21 @@ app.post('/', async (req, res) => {
                     await redis.set(`wa:session:${fromPhone}`, JSON.stringify({
                         activeTourId: selectedTourId,
                         activeTourName: selectedTourName,
-                        itineraryId: tour.itinerary_id
+                        itineraryId: tour.itinerary_id,
+                        userId: tour.user_id
                     }), 'EX', 86400); // 24h
-                    
+
+                    // One-time PATCH: mark this user as WhatsApp-initiated for the selected tour
+                    if (tour.user_id) {
+                        const initiatedKey = `wa:initiated:${fromPhone}:${tour.itinerary_id}`;
+                        const alreadyInitiated = await redis.get(initiatedKey);
+                        if (!alreadyInitiated) {
+                            markWhatsappInitiated(tour.itinerary_id, tour.user_id).then(() => {
+                                redis.set(initiatedKey, '1'); // no expiry — truly one-time
+                            }).catch(err => console.error('❌ markWhatsappInitiated error:', err.message));
+                        }
+                    }
+
                     await sendWhatsApp(fromPhone, buildInstructions(selectedTourName));
                     return;
                 }
@@ -630,6 +664,9 @@ app.post('/', async (req, res) => {
             console.log(`🔍 [Auth Result] Phone: ${fromPhone}, Status: ${status}, Data: ${JSON.stringify(data)}`);
             
             if (status === 200 && data.exists === true) {
+                // user_id is a top-level field in the verify-number response
+                const verifiedUserId = data.user_id || null;
+
                 // Map the new API response pattern to the expected internal format
                 let tours = (data.tours || []).map(t => ({
                     tour_id: t.tour_id,
@@ -637,7 +674,8 @@ app.post('/', async (req, res) => {
                     tour_name: t.title,
                     tour_start_date: t.start_date,
                     tour_end_date: t.end_date,
-                    tour_status: t.status
+                    tour_status: t.status,
+                    user_id: verifiedUserId  // propagate participant GUID to each tour entry
                 }));
                 
                 // Fallback for legacy single-tour response format
@@ -646,7 +684,8 @@ app.post('/', async (req, res) => {
                         tour_id: data.tour_id,
                         itinerary_id: data.itinerary_id,
                         tour_name: data.tour_name,
-                        tour_status: data.tour_status || 'active'
+                        tour_status: data.tour_status || 'active',
+                        user_id: verifiedUserId
                     }];
                 }
 
@@ -662,10 +701,22 @@ app.post('/', async (req, res) => {
                         await redis.set(`wa:session:${fromPhone}`, JSON.stringify({
                             activeTourId: tour.tour_id,
                             activeTourName: tour.tour_name,
-                            itineraryId: tour.itinerary_id
+                            itineraryId: tour.itinerary_id,
+                            userId: tour.user_id
                         }), 'EX', 86400);
                     }
-                    
+
+                    // One-time PATCH: mark this user as WhatsApp-initiated for this tour
+                    if (!isSwitchCommand && tour.user_id) {
+                        const initiatedKey = `wa:initiated:${fromPhone}:${tour.itinerary_id}`;
+                        const alreadyInitiated = redis ? await redis.get(initiatedKey) : null;
+                        if (!alreadyInitiated) {
+                            markWhatsappInitiated(tour.itinerary_id, tour.user_id).then(() => {
+                                if (redis) redis.set(initiatedKey, '1'); // no expiry — truly one-time
+                            }).catch(err => console.error('❌ markWhatsappInitiated error:', err.message));
+                        }
+                    }
+
                     if (isSwitchCommand) {
                         await sendWhatsApp(fromPhone, `You are currently registered for only one active tour: *${tour.tour_name}*. I'm ready to answer any questions about it! 🏖️`);
                     } else {
