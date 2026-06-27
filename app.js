@@ -12,8 +12,9 @@ const WA_TOKEN = process.env.WA_TOKEN || 'YOUR_WHATSAPP_TOKEN';
 const LLM_API_URL = process.env.LLM_API_URL || 'https://tours-ai-serach-api-ghbucpa8hqdea2d3.centralus-01.azurewebsites.net/api/v1/search';
 const WA_PHONE_NUMBER_ID = process.env.WA_PHONE_NUMBER_ID || '';
 const WA_API_URL = `https://graph.facebook.com/v25.0/${WA_PHONE_NUMBER_ID}/messages`;
-const VERIFY_API_URL = 'https://tours-ai-serach-api-ghbucpa8hqdea2d3.centralus-01.azurewebsites.net/api/v1/auth/verify-number';
+const VERIFY_API_URL = process.env.VERIFY_API_URL || 'https://tours-ai-serach-api-ghbucpa8hqdea2d3.centralus-01.azurewebsites.net/api/v1/auth/verify-number';
 const TRANSCRIBE_API_URL = process.env.TRANSCRIBE_API_URL || 'https://tours-ai-serach-api-ghbucpa8hqdea2d3.centralus-01.azurewebsites.net/api/v1/transcribe';
+const INTERNAL_SECRET = process.env.INTERNAL_SECRET || '';
 const TOURS_API_BASE = process.env.TOURS_API_BASE || 'https://ngtoursapi-e9gxafbsdpdebnc4.westus2-01.azurewebsites.net/api';
 const AZURE_CACHE_URL = process.env.AZURE_CACHE_URL;
 const AZURE_CACHE_KEY = process.env.AZURE_CACHE_KEY;
@@ -461,7 +462,10 @@ async function verifyUser(phone) {
     try {
         const response = await fetch(VERIFY_API_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Internal-Secret': INTERNAL_SECRET
+            },
             body: JSON.stringify({ phone })
         });
 
@@ -519,6 +523,7 @@ async function downloadAndTranscribeAudio(mediaId) {
 
     const transcribeRes = await fetch(TRANSCRIBE_API_URL, {
         method: 'POST',
+        headers: { 'X-Internal-Secret': INTERNAL_SECRET },
         body: formData
     });
     if (!transcribeRes.ok) throw new Error(`Transcription API error ${transcribeRes.status}: ${await transcribeRes.text()}`);
@@ -556,7 +561,10 @@ async function handleMessage(userMessage, toPhone, messageId, itineraryId) {
     // Call the external LLM API
     const llmResponse = await fetch(LLM_API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Internal-Secret': INTERNAL_SECRET
+        },
         body: JSON.stringify(payload)
     });
 
