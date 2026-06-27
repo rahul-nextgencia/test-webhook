@@ -19,6 +19,21 @@ const TOURS_API_BASE = process.env.TOURS_API_BASE || 'https://ngtoursapi-e9gxafb
 const AZURE_CACHE_URL = process.env.AZURE_CACHE_URL;
 const AZURE_CACHE_KEY = process.env.AZURE_CACHE_KEY;
 
+// ---------------------------------------------------------------------------
+// Startup guard — crash loudly rather than silently sending malformed requests
+// ---------------------------------------------------------------------------
+if (!WA_PHONE_NUMBER_ID) {
+    console.error('[FATAL] WA_PHONE_NUMBER_ID env var is missing or empty.');
+    console.error('[FATAL] WA_API_URL would be: https://graph.facebook.com/v25.0//messages (INVALID)');
+    console.error('[FATAL] This causes Graph API error 100/33: Object with ID "messages" does not exist.');
+    console.error('[FATAL] Set WA_PHONE_NUMBER_ID in your .env or Azure App Service Application Settings.');
+    process.exit(1);
+}
+if (!WA_TOKEN || WA_TOKEN === 'YOUR_WHATSAPP_TOKEN') {
+    console.error('[FATAL] WA_TOKEN env var is missing or still set to the placeholder value.');
+    process.exit(1);
+}
+
 if (AZURE_CACHE_URL && AZURE_CACHE_KEY) {
     const [host, portStr] = AZURE_CACHE_URL.split(':');
     const port = parseInt(portStr) || 6380;
@@ -180,6 +195,7 @@ function buildInstructions(tourName) {
 
 // Sends a WhatsApp message to the given phone number
 async function sendWhatsApp(toPhone, messageText) {
+    console.log(`📤 [sendWhatsApp] URL: ${WA_API_URL} | to: ${toPhone} | length: ${messageText?.length}`);
     const payload = {
         messaging_product: 'whatsapp',
         to: toPhone,
@@ -198,6 +214,10 @@ async function sendWhatsApp(toPhone, messageText) {
 
     if (!response.ok) {
         const errText = await response.text();
+        console.error(`❌ [sendWhatsApp] WA_API_URL used: ${WA_API_URL}`);
+        console.error(`❌ [sendWhatsApp] Phone ID from env: "${WA_PHONE_NUMBER_ID}"`);
+        console.error(`❌ [sendWhatsApp] Token present: ${!!WA_TOKEN && WA_TOKEN !== 'YOUR_WHATSAPP_TOKEN'}`);
+        console.error(`❌ [sendWhatsApp] Response ${response.status}: ${errText}`);
         throw new Error(`WhatsApp API error ${response.status}: ${errText}`);
     }
 
@@ -803,5 +823,13 @@ app.post('/', async (req, res) => {
 });
 
 app.listen(port, () => {
-    console.log(`\nListening on port ${port}\n`);
+    console.log(`\nListening on port ${port}`);
+    console.log(`[CONFIG] WA_API_URL       : ${WA_API_URL}`);
+    console.log(`[CONFIG] WA_PHONE_NUMBER_ID: ${WA_PHONE_NUMBER_ID || '⚠️  EMPTY'}`);
+    console.log(`[CONFIG] WA_TOKEN present : ${!!WA_TOKEN && WA_TOKEN !== 'YOUR_WHATSAPP_TOKEN'}`);
+    console.log(`[CONFIG] VERIFY_API_URL   : ${VERIFY_API_URL}`);
+    console.log(`[CONFIG] LLM_API_URL      : ${LLM_API_URL}`);
+    console.log(`[CONFIG] TRANSCRIBE_URL   : ${TRANSCRIBE_API_URL}`);
+    console.log(`[CONFIG] INTERNAL_SECRET  : ${INTERNAL_SECRET ? '✅ set' : '⚠️  NOT SET'}`);
+    console.log(`[CONFIG] Redis            : ${AZURE_CACHE_URL ? AZURE_CACHE_URL : '⚠️  NOT SET'}\n`);
 });
