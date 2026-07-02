@@ -725,7 +725,7 @@ app.post('/', async (req, res) => {
                     }];
                 }
 
-                const activeTours = tours.filter(t => t.tour_status !== 'expired');
+                const activeTours = tours.filter(t => t.tour_status !== 'expired' && t.tour_status !== 'cancelled');
 
                 if (activeTours.length === 0) {
                     console.log(`🚫 No active tours for: ${fromPhone}`);
