@@ -556,7 +556,7 @@ async function downloadAndTranscribeAudio(mediaId) {
 
 
 // Calls the external LLM API, aggregates the stream, and replies via WhatsApp
-async function handleMessage(userMessage, toPhone, messageId, itineraryId, userId = null) {
+async function handleMessage(userMessage, toPhone, messageId, itineraryId) {
     if (!userMessage || String(userMessage).trim() === "") {
         console.warn(`⚠️ Skipping LLM call: message is empty or undefined.`);
         await reactToMessage(toPhone, messageId, '❓');
@@ -571,7 +571,7 @@ async function handleMessage(userMessage, toPhone, messageId, itineraryId, userI
 
     const payload = {
         message: userMessage,
-        user_id: userId || toPhone,
+        user_id: toPhone,
         session_id: toPhone,
         itinerary_id: itineraryId || ""
     };
@@ -689,7 +689,7 @@ app.post('/', async (req, res) => {
             if (sessionData && !isSwitchCommand) {
                 const session = JSON.parse(sessionData);
                 if (redis) await redis.expire(`wa:session:${fromPhone}`, 86400); // Rolling 24h
-                handleMessage(userMessage, fromPhone, messageId, session.itineraryId, session.userId).catch(err => {
+                handleMessage(userMessage, fromPhone, messageId, session.itineraryId).catch(err => {
                     console.error('❌ handleMessage error:', err.message);
                 });
                 return;
@@ -771,7 +771,7 @@ app.post('/', async (req, res) => {
                         // Fallback: pick the first one and warn
                         console.warn(`⚠️ Multiple tours for ${fromPhone} but Redis is down. Falling back to first tour.`);
                         const tour = activeTours[0];
-                        handleMessage(userMessage, fromPhone, messageId, tour.itinerary_id, tour.user_id).catch(err => {
+                        handleMessage(userMessage, fromPhone, messageId, tour.itinerary_id).catch(err => {
                             console.error('❌ handleMessage error:', err.message);
                         });
                     }
@@ -805,7 +805,7 @@ app.post('/', async (req, res) => {
                 const transcribedText = await downloadAndTranscribeAudio(message.audio.id);
                 console.log(`📝 Transcribed: "${transcribedText}"`);
                 // Route through the existing LLM flow, same as a text message
-                handleMessage(transcribedText, fromPhone, messageId, session.itineraryId, session.userId).catch(err => {
+                handleMessage(transcribedText, fromPhone, messageId, session.itineraryId).catch(err => {
                     console.error('❌ handleMessage (audio) error:', err.message);
                 });
             } catch (err) {
